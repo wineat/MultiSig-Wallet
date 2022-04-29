@@ -1,51 +1,75 @@
 pragma solidity 0.7.5;
 pragma abicoder v2;
 
-import "./Ownable.sol";
-//["0x5B38Da6a701c568545dCfcB03FcB875f56beddC4","0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2"]
 contract Wallet {
-    
-    address[] owners;
+    address[] public owners;
     uint limit;
     
-    struct Transfer {
-        uint id;
-        uint noOfApprovals;
-        address from;
-        address payable to;
+    struct Transfer{
         uint amount;
-        bool isApproved;
+        address payable receiver;
+        uint approvals;
+        bool hasBeenSent;
+        uint id;
     }
     
+    event TransferRequestCreated(uint _id, uint _amount, address _initiator, address _receiver);
+    event ApprovalReceived(uint _id, uint _approvals, address _approver);
+    event TransferApproved(uint _id);
+
     Transfer[] transferRequests;
     
-    mapping(address => uint) balance;
+    mapping(address => mapping(uint => bool)) approvals;
     
-    constructor(uint _limit, address[] memory _owners) {
-        require(_limit >= 2, "Two or more approvers required");
-        require(_owners.length >= _limit, "Limit exceeds the number of approvers");
-         bool _duplicate;
-        for(uint i=0; i<_owners.length; i++) {
-            for(uint j= i+1; j< _owners.length; j++) {
-                if(_owners[i] == _owners[j]) {
-                    _duplicate = true;
-                    break;
-                }
-            }
-            if(_duplicate == false) {
-                owners.push(_owners[i]);
+    //Should only allow people in the owners list to continue the execution.
+    modifier onlyOwners(){
+        bool owner = false;
+        for(uint i=0; i<owners.length;i++){
+            if(owners[i] == msg.sender){
+                owner = true;
             }
         }
-        require(_duplicate == false, "Duplicate Signatory");
+        require(owner == true);
+        _;
+    }
+    //Should initialize the owners list and the limit 
+    constructor(address[] memory _owners, uint _limit) {
+        owners = _owners;
         limit = _limit;
     }
     
-    function deposit() payable public returns(uint) {
-        balance[msg.sender] += msg.value;
-        return balance[msg.sender];
+    //Empty function
+    function deposit() public payable {}
+    
+    //Create an instance of the Transfer struct and add it to the transferRequests array
+    function createTransfer(uint _amount, address payable _receiver) public onlyOwners {
+        emit TransferRequestCreated(transferRequests.length, _amount, msg.sender, _receiver);
+        transferRequests.push(
+            Transfer(_amount, _receiver, 0, false, transferRequests.length)
+        );
+        
     }
     
-    function getBalance() public returns(uint) {
-        return balance[msg.sender];
+    function approve(uint _id) public onlyOwners {
+        require(approvals[msg.sender][_id] == false);
+        require(transferRequests[_id].hasBeenSent == false);
+        
+        approvals[msg.sender][_id] = true;
+        transferRequests[_id].approvals++;
+        
+        emit ApprovalReceived(_id, transferRequests[_id].approvals, msg.sender);
+        
+        if(transferRequests[_id].approvals >= limit){
+            transferRequests[_id].hasBeenSent = true;
+            transferRequests[_id].receiver.transfer(transferRequests[_id].amount);
+            emit TransferApproved(_id);
+        }
     }
+    
+    //Should return all transfer requests
+    function getTransferRequests() public view returns (Transfer[] memory){
+        return transferRequests;
+    }
+    
+    
 }
